@@ -48,6 +48,7 @@ from .predict import (
 )
 from .capabilities import i2lora_capabilities
 from .demo import build_demo_predictor
+from .inject import injected_loras, build_linear_map
 
 __all__ = [
     "LoRALayerSpec",
@@ -71,4 +72,6 @@ __all__ = [
     "PredictResult",
     "i2lora_capabilities",
     "build_demo_predictor",
+    "injected_loras",
+    "build_linear_map",
 ]

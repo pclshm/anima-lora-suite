@@ -208,8 +208,10 @@ Multiple references fuse into one style LoRA; an optional *gray neutral* LoRA
 supports the paper's asymmetric classifier-free guidance. The result is a
 standard `.safetensors` the editor, analyzer, live preview, and ComfyUI all
 load. Reference-image input needs `pillow`; the real SigLIP2 encoder needs
-`transformers` + SigLIP2 weights (both in the preview extras). Full details:
-[`docs/I2LORA.md`](docs/I2LORA.md).
+`transformers` + SigLIP2 weights (both in the preview extras). Using a
+predictor: [`docs/I2LORA.md`](docs/I2LORA.md). **Training your own Anima
+predictor:** [`docs/I2LORA_TRAINING.md`](docs/I2LORA_TRAINING.md) (data, the
+Anima flow-matching loss, differentiable LoRA injection, a reference loop).
 
 ---
 
@@ -336,6 +338,7 @@ anima-lora-editor/
 │   │   ├── predict.py        images → Anima LoRA (+ gray neutral, fusion)
 │   │   ├── checkpoint.py     self-describing predictor save/load
 │   │   ├── capabilities.py   readiness probe
+│   │   ├── inject.py         differentiable LoRA injection (for training)
 │   │   └── demo.py           tiny random demo predictor
 │   └── preview/            Standalone live-preview package
 │       ├── sampler.py        Vendored ClownsharKSampler RES solver (no ComfyUI)
@@ -352,7 +355,8 @@ anima-lora-editor/
 ├── examples/
 │   ├── smoke_test.py            Editor round-trip checks
 │   ├── preview_smoke_test.py    Sampler + pipeline checks (CPU)
-│   └── i2lora_smoke_test.py     Image-to-LoRA end-to-end checks (CPU)
+│   ├── i2lora_smoke_test.py     Image-to-LoRA end-to-end checks (CPU)
+│   └── i2lora_train_step_test.py  Differentiable-injection train step (CPU)
 ├── requirements.txt
 ├── requirements-preview.txt     Optional generation extras (GPU)
 ├── setup_env.{bat,sh}           Install venv + base deps

@@ -41,7 +41,10 @@ i2L is an **inference** architecture. It needs a *trained* predictor checkpoint
    learn the workflow. Drop in a real trained checkpoint for real results.
 
 In short: **the pipeline is complete and runnable; the missing piece is trained
-predictor weights, which only meta-training (out of scope here) can produce.**
+predictor weights, which only meta-training can produce.** Want to train your
+own Anima predictor? See **[I2LORA_TRAINING.md](I2LORA_TRAINING.md)** — it covers
+the data, the Anima-specific flow-matching loss, the differentiable LoRA
+injection (`core/i2lora/inject.py`), and a reference training loop.
 
 ---
 
