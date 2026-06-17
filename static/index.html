@@ -448,6 +448,78 @@
       </div>
     </section>
 
+    <!-- ─── CREATE FROM IMAGES (i2L) ───────────────────────────────────── -->
+    <section class="panel" id="i2l-panel">
+      <header class="panel-head">
+        <span class="panel-step">へ</span>
+        <div>
+          <h2>Create from Images <span class="cfg-layer-tag">i2L</span></h2>
+          <p>Predict a style LoRA from reference images in one forward pass &middot; <code>image-to-LoRA</code> (arXiv:2606.13809)</p>
+        </div>
+        <div class="status-pill" id="i2l-pill" data-state="idle">checking…</div>
+      </header>
+
+      <div class="i2l-note" id="i2l-note">
+        <b>Needs a trained predictor checkpoint.</b> No i2L predictor has been
+        publicly released for Anima yet (the paper ships ones for Z-Image /
+        FLUX.2-klein / Hidream-O1). Run
+        <code>python i2l.py make-demo demo_predictor.safetensors</code> to create
+        a small <i>random</i> demo predictor — it produces a valid Anima LoRA so
+        you can try the workflow, but it is <b>not trained</b> and will not
+        stylise. Point this at a real trained checkpoint for real results.
+      </div>
+
+      <div class="row">
+        <label class="field grow">
+          <span class="field-label">Predictor checkpoint</span>
+          <input id="i2l-checkpoint" type="text" spellcheck="false"
+                 placeholder="demo_predictor.safetensors" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span class="field-label">Reference images <span class="pv-seed-hint">one path per line · multiple = style fusion</span></span>
+        <textarea id="i2l-images" rows="3" spellcheck="false"
+                  placeholder="/path/to/ref1.png&#10;/path/to/ref2.jpg"></textarea>
+      </label>
+
+      <div class="config-grid">
+        <label class="field">
+          <span class="field-label">Multiplier <output id="i2l-mult-val" class="field-val">1.0</output></span>
+          <input id="i2l-mult" type="range" min="0" max="2" step="0.05" value="1.0" />
+        </label>
+        <label class="field i2l-check-field">
+          <span class="field-label">Asymmetric guidance</span>
+          <label class="i2l-check"><input id="i2l-gray" type="checkbox" /> also write gray neutral LoRA</label>
+        </label>
+      </div>
+
+      <details class="pv-advanced" id="i2l-advanced">
+        <summary>SigLIP2 encoder — only if the checkpoint needs it</summary>
+        <p class="pv-hint" id="i2l-encoder-hint"></p>
+        <label class="field">
+          <span class="field-label">SigLIP2 model path</span>
+          <input id="i2l-siglip" type="text" spellcheck="false"
+                 placeholder="C:\models\siglip2 (HF dir or file)" />
+        </label>
+      </details>
+
+      <div class="row">
+        <label class="field grow">
+          <span class="field-label">Output path</span>
+          <input id="i2l-output" type="text" spellcheck="false"
+                 placeholder="style_from_images.safetensors" />
+        </label>
+      </div>
+
+      <button id="btn-i2l-create" class="btn btn-primary">
+        <span class="btn-label">Create LoRA from images</span>
+        <span class="btn-spark" aria-hidden="true"></span>
+      </button>
+
+      <div class="i2l-result" id="i2l-result" hidden></div>
+    </section>
+
     <!-- ─── OUTPUT ─────────────────────────────────────────────────────── -->
     <section class="panel" id="sec-save">
       <header class="panel-head">
@@ -582,6 +654,9 @@
       </button>
       <button type="button" class="qd-dot" data-qd-jump="preview-panel" title="Live Preview">
         <span class="qd-dot-glyph" aria-hidden="true">に</span><span class="qd-label">Preview</span>
+      </button>
+      <button type="button" class="qd-dot" data-qd-jump="i2l-panel" title="Create from Images (i2L)">
+        <span class="qd-dot-glyph" aria-hidden="true">へ</span><span class="qd-label">i2L</span>
       </button>
       <button type="button" class="qd-dot" data-qd-jump="sec-save" title="Save">
         <span class="qd-dot-glyph" aria-hidden="true">ほ</span><span class="qd-label">Save</span>

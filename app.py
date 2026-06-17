@@ -17,6 +17,8 @@ Endpoints:
     POST /api/edit              { lora_path, output_path, config } -> info
     GET  /api/preview/capabilities   What the live preview can do (CUDA, backend)
     POST /api/preview           { prompt, ..., lora_path, config } -> PNG data-URI
+    GET  /api/i2lora/capabilities    What image-to-LoRA can do (checkpoint, encoder)
+    POST /api/i2lora/create     { checkpoint, image_paths, output_path } -> info
 """
 
 import os
@@ -496,6 +498,84 @@ def api_edit():
         return jsonify(error=f"failed to save: {e}", info=info), 500
 
     info["saved"] = True
+    return jsonify(info=info)
+
+
+# ----------------------------------------------------------------------------
+# i2L — create a LoRA from reference images (image-to-LoRA, arXiv:2606.13809)
+# ----------------------------------------------------------------------------
+
+@app.route("/api/i2lora/capabilities", methods=["GET", "POST"])
+def api_i2lora_capabilities():
+    """Report what image-to-LoRA can do (checkpoint present? encoder? ready?)."""
+    from core.i2lora import i2lora_capabilities
+    body = request.get_json(force=True, silent=True) or {}
+    ckpt = (body.get("checkpoint") or request.args.get("checkpoint") or "").strip()
+    siglip = (body.get("siglip_path") or request.args.get("siglip_path") or "").strip()
+    return jsonify(i2lora_capabilities(checkpoint=ckpt, siglip_path=siglip))
+
+
+@app.route("/api/i2lora/create", methods=["POST"])
+def api_i2lora_create():
+    """Predict an Anima LoRA from reference images and write it to disk.
+
+    Body: ``{ checkpoint, image_paths: [..], output_path, siglip_path?,
+              multiplier?, alpha?, gray? }``. Reference images and the predictor
+      checkpoint are server-side paths (same convention as /api/edit's
+      lora_path). Returns an ``info`` dict; if ``gray`` is set, also writes the
+      neutral gray LoRA alongside ``output_path`` and reports its path.
+    """
+    from core.i2lora import predict_lora_from_paths, make_metadata
+
+    body = request.get_json(force=True, silent=True) or {}
+    checkpoint = os.path.expanduser((body.get("checkpoint") or "").strip())
+    out_path = os.path.expanduser((body.get("output_path") or "").strip())
+    siglip = os.path.expanduser((body.get("siglip_path") or "").strip()) or None
+    image_paths = [os.path.expanduser(p.strip())
+                   for p in (body.get("image_paths") or []) if p and p.strip()]
+
+    if not checkpoint or not os.path.exists(checkpoint):
+        return jsonify(error=f"predictor checkpoint not found: {checkpoint}"), 404
+    if not image_paths:
+        return jsonify(error="at least one reference image is required"), 400
+    missing = [p for p in image_paths if not os.path.exists(p)]
+    if missing:
+        return jsonify(error="reference image(s) not found: " + ", ".join(missing)), 404
+    if not out_path:
+        return jsonify(error="output_path is required"), 400
+
+    try:
+        multiplier = float(body.get("multiplier", 1.0))
+        alpha = body.get("alpha")
+        alpha = float(alpha) if alpha not in (None, "") else None
+        gray = bool(body.get("gray", False))
+    except (TypeError, ValueError) as e:
+        return jsonify(error=f"bad options: {e}"), 400
+
+    try:
+        main, gray_res = predict_lora_from_paths(
+            checkpoint=checkpoint, image_paths=image_paths, siglip_path=siglip,
+            multiplier=multiplier, alpha=alpha, also_gray=gray,
+        )
+    except Exception as e:
+        log.exception("i2lora create failed")
+        return jsonify(error=f"prediction failed: {e}"), 500
+
+    try:
+        save_lora_state_dict(main.state_dict, out_path,
+                             metadata=make_metadata(main.info, checkpoint, image_paths))
+        info = dict(main.info)
+        info["output_path"] = out_path
+        info["saved"] = True
+        if gray_res is not None:
+            root, ext = os.path.splitext(out_path)
+            gp = f"{root}.gray{ext or '.safetensors'}"
+            save_lora_state_dict(gray_res.state_dict, gp,
+                                 metadata=make_metadata(gray_res.info, checkpoint, []))
+            info["gray_output_path"] = gp
+    except Exception as e:
+        return jsonify(error=f"failed to save: {e}"), 500
+
     return jsonify(info=info)
 
 

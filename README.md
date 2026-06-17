@@ -178,6 +178,41 @@ your browser.
 
 ---
 
+## Create a LoRA from images — i2L (image-to-LoRA)
+
+Beyond *editing* LoRAs, the suite can **predict an Anima style LoRA directly
+from reference images in a single forward pass** — a faithful, standalone
+implementation of **i2L** from
+[*Compressing Image Style Training into a Single Model Forward*](https://arxiv.org/abs/2606.13809)
+(Duan & Chen, arXiv:2606.13809). A frozen image encoder + a transformer with
+learnable LoRA queries + compressed decoding heads map one or more reference
+images straight to LoRA weights — no per-style training loop.
+
+> **⚠️ Needs a trained predictor checkpoint.** i2L is an *inference*
+> architecture. No i2L predictor has been publicly released for Anima (the paper
+> ships ones for Z-Image / FLUX.2-klein / Hidream-O1, in a different key
+> layout). A bundled **demo predictor** (`python i2l.py make-demo …`) has
+> *random* weights: it produces a structurally valid Anima LoRA so you can run
+> the whole workflow, but it is **not trained** and will not stylise. Point it
+> at a real trained checkpoint for real results.
+
+```bash
+# Make a random demo predictor, then create a LoRA from two reference images
+python i2l.py make-demo demo_predictor.safetensors
+python i2l.py create --checkpoint demo_predictor.safetensors \
+    --images ref1.png ref2.jpg --output style_from_images.safetensors --gray
+```
+
+Or use the **Create from Images (i2L)** panel in the web UI (the `へ` step).
+Multiple references fuse into one style LoRA; an optional *gray neutral* LoRA
+supports the paper's asymmetric classifier-free guidance. The result is a
+standard `.safetensors` the editor, analyzer, live preview, and ComfyUI all
+load. Reference-image input needs `pillow`; the real SigLIP2 encoder needs
+`transformers` + SigLIP2 weights (both in the preview extras). Full details:
+[`docs/I2LORA.md`](docs/I2LORA.md).
+
+---
+
 ## The Anima architecture, briefly
 
 Anima is a 2 B parameter DiT derived from
@@ -285,7 +320,8 @@ curl http://localhost:7860/api/preview/capabilities
 
 ```
 anima-lora-editor/
-├── app.py                  Flask backend (+ /api/preview endpoints)
+├── app.py                  Flask backend (+ /api/preview, /api/i2lora endpoints)
+├── i2l.py                  i2L CLI (make-demo / create / caps)
 ├── core/
 │   ├── __init__.py
 │   ├── detect.py           Key-pattern detection + architecture classifier
@@ -293,6 +329,14 @@ anima-lora-editor/
 │   ├── analyzer.py         Per-block Frobenius-norm impact scores
 │   ├── presets.py          12 preset block masks
 │   ├── anima/              Vendored Anima model code (DiT, WanVAE, LoRA merge)
+│   ├── i2lora/             Image-to-LoRA (i2L): predict a LoRA from images
+│   │   ├── layer_spec.py     Anima target layers (real 2B dims) + LoRA keys
+│   │   ├── model.py          I2LModel: encoder→transformer→queries→decoders
+│   │   ├── encoder.py        SigLIP2 encoder + weight-free fallback + image IO
+│   │   ├── predict.py        images → Anima LoRA (+ gray neutral, fusion)
+│   │   ├── checkpoint.py     self-describing predictor save/load
+│   │   ├── capabilities.py   readiness probe
+│   │   └── demo.py           tiny random demo predictor
 │   └── preview/            Standalone live-preview package
 │       ├── sampler.py        Vendored ClownsharKSampler RES solver (no ComfyUI)
 │       ├── schedulers.py     karras / exponential / linear sigma schedules
@@ -307,7 +351,8 @@ anima-lora-editor/
 │   └── waifu-bg.{png,jpg}  Optional — drop your own here
 ├── examples/
 │   ├── smoke_test.py            Editor round-trip checks
-│   └── preview_smoke_test.py    Sampler + pipeline checks (CPU)
+│   ├── preview_smoke_test.py    Sampler + pipeline checks (CPU)
+│   └── i2lora_smoke_test.py     Image-to-LoRA end-to-end checks (CPU)
 ├── requirements.txt
 ├── requirements-preview.txt     Optional generation extras (GPU)
 ├── setup_env.{bat,sh}           Install venv + base deps

@@ -155,6 +155,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initLayers();
   await checkHealth();
   initPreview();
+  initI2L();
   initQuickDock();
   wireCompressPanel();
 });
@@ -2251,4 +2252,164 @@ function initDockScrollSpy(dock) {
   }, { rootMargin: '-40% 0px -40% 0px', threshold: [0, 0.25, 0.5, 1] });
 
   sections.forEach((s) => obs.observe(s));
+}
+
+
+// ─── Create from Images (i2L) ────────────────────────────────────────────────
+// Image-to-LoRA (arXiv:2606.13809): predict a style LoRA from reference images
+// in one forward pass. Talks to /api/i2lora/{capabilities,create}. Like Live
+// Preview it needs an external artifact (a trained predictor checkpoint) but —
+// unlike preview — the forward pass is small and runs fine on CPU.
+
+const I2L_STORE = 'anima_i2l_settings_v1';
+
+function initI2L() {
+  bindRange('i2l-mult', 'i2l-mult-val', 2);
+
+  $('btn-i2l-create').addEventListener('click', onI2LCreate);
+
+  const persistIds = ['i2l-checkpoint', 'i2l-images', 'i2l-siglip',
+                      'i2l-output', 'i2l-mult', 'i2l-gray'];
+  persistIds.forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener('change', saveI2LSettings);
+  });
+  // Checkpoint / SigLIP changes re-probe what the predictor needs.
+  ['i2l-checkpoint', 'i2l-siglip'].forEach((id) => {
+    $(id).addEventListener('change', () => { cleanPathField($(id)); refreshI2LCapabilities(); });
+  });
+
+  restoreI2LSettings();
+  refreshI2LCapabilities();
+}
+
+function i2lImagePaths() {
+  return $('i2l-images').value.split('\n').map((s) => cleanPath(s)).filter(Boolean);
+}
+
+function setI2LPill(stateName, text) {
+  const pill = $('i2l-pill');
+  pill.dataset.state = stateName;
+  pill.textContent = text;
+}
+
+async function refreshI2LCapabilities() {
+  try {
+    const r = await fetch('/api/i2lora/capabilities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        checkpoint: cleanPath($('i2l-checkpoint').value),
+        siglip_path: cleanPath($('i2l-siglip').value),
+      }),
+    });
+    applyI2LCapabilities(await r.json());
+  } catch {
+    setI2LPill('error', 'i2L offline');
+  }
+}
+
+function applyI2LCapabilities(caps) {
+  const hint = $('i2l-encoder-hint');
+  if (caps.ready) {
+    setI2LPill('ok', `ready · ${caps.device}`);
+  } else if (!caps.checkpoint_present) {
+    setI2LPill('idle', 'set checkpoint');
+  } else if (caps.needs_siglip) {
+    setI2LPill('error', 'SigLIP2 needed');
+    $('i2l-advanced').open = true;
+  } else {
+    setI2LPill('error', 'not ready');
+  }
+  // Surface what the loaded predictor expects.
+  const s = caps.checkpoint_summary;
+  if (s) {
+    const enc = caps.needs_siglip
+      ? `encoder: SigLIP2 (image_embed_dim ${s.image_embed_dim})`
+      : 'encoder: fallback (no SigLIP2 needed — note: not a learned encoder)';
+    hint.textContent = `${s.layers} layers · ${s.blocks} blocks · rank ${s.rank} · ${enc}. ${caps.reason}.`;
+  } else {
+    hint.textContent = caps.reason || '';
+  }
+}
+
+async function onI2LCreate() {
+  const checkpoint = cleanPath($('i2l-checkpoint').value);
+  const images = i2lImagePaths();
+  const output = cleanPath($('i2l-output').value);
+  if (!checkpoint) { toast('predictor checkpoint required', 'error'); return; }
+  if (!images.length) { toast('add at least one reference image', 'error'); return; }
+  if (!output) { toast('output path required', 'error'); return; }
+
+  const btn = $('btn-i2l-create');
+  btn.disabled = true;
+  toast(images.length > 1 ? `fusing ${images.length} images…` : 'predicting LoRA…');
+
+  try {
+    const r = await fetch('/api/i2lora/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        checkpoint,
+        image_paths: images,
+        output_path: output,
+        siglip_path: cleanPath($('i2l-siglip').value),
+        multiplier: parseFloat($('i2l-mult').value),
+        gray: $('i2l-gray').checked,
+      }),
+    });
+    const data = await r.json();
+    $('i2l-result').hidden = false;
+    if (!r.ok) {
+      toast(data.error || 'create failed', 'error');
+      $('i2l-result').textContent = data.error || JSON.stringify(data, null, 2);
+      return;
+    }
+    $('i2l-result').textContent = formatI2LInfo(data.info);
+    rememberPath('lora_in', output);  // so it shows up in the editor's path history
+    toast(`created → ${output.split(/[\\/]/).pop()}`, 'success');
+  } catch (e) {
+    toast('network error', 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function formatI2LInfo(info) {
+  const lines = [
+    `output:                ${info.output_path}`,
+    `reference images:      ${info.num_reference_images}  (${info.num_image_tokens} tokens)`,
+    `adapted layers:        ${info.num_layers}`,
+    `rank / alpha:          ${info.rank} / ${info.alpha}`,
+    `multiplier:            ${info.multiplier}`,
+    `tensors written:       ${info.output_tensor_count}`,
+    `encoder:               ${info.encoder}${info.encoder_is_real ? '' : '  (fallback — NOT trained/SigLIP2)'}`,
+  ];
+  if (info.gray_output_path) lines.push(`gray neutral LoRA:     ${info.gray_output_path}`);
+  if (!info.encoder_is_real) {
+    lines.push('', 'NOTE: fallback encoder — this LoRA is structurally valid but');
+    lines.push('not meaningfully stylised. Use a SigLIP2-trained checkpoint for results.');
+  }
+  return lines.join('\n');
+}
+
+function saveI2LSettings() {
+  const s = {
+    checkpoint: $('i2l-checkpoint').value, images: $('i2l-images').value,
+    siglip: $('i2l-siglip').value, output: $('i2l-output').value,
+    mult: $('i2l-mult').value, gray: $('i2l-gray').checked,
+  };
+  try { localStorage.setItem(I2L_STORE, JSON.stringify(s)); } catch { /* private mode */ }
+}
+
+function restoreI2LSettings() {
+  let s;
+  try { s = JSON.parse(localStorage.getItem(I2L_STORE) || 'null'); } catch { s = null; }
+  if (!s) return;
+  if (s.checkpoint != null) $('i2l-checkpoint').value = s.checkpoint;
+  if (s.images != null) $('i2l-images').value = s.images;
+  if (s.siglip != null) $('i2l-siglip').value = s.siglip;
+  if (s.output != null) $('i2l-output').value = s.output;
+  if (s.mult != null) { $('i2l-mult').value = s.mult; $('i2l-mult-val').textContent = (+s.mult).toFixed(2); }
+  if (s.gray != null) $('i2l-gray').checked = s.gray;
 }
